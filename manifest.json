@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "id": "explify.syncthing",
+  "name": "Syncthing",
+  "version": "1.0.0",
+  "author": "explify",
+  "license": "MIT",
+  "description": "Syncthing status, folder sync progress, device connectivity, and quick actions in the Omarchy bar.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Syncthing",
+    "description": "Monitor Syncthing folders and devices, toggle the service, rescan, and open the Web UI.",
+    "category": "Network",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "refreshIntervalSec": 10
+    },
+    "schema": [
+      {
+        "key": "refreshIntervalSec",
+        "type": "integer",
+        "label": "Refresh interval (seconds)",
+        "min": 2,
+        "max": 3600,
+        "step": 1,
+        "defaultValue": 10
+      }
+    ]
+  }
+}

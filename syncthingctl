@@ -1,0 +1,97 @@
+#!/bin/bash
+# Syncthing REST helper for the explify.syncthing Omarchy bar widget.
+# Usage: syncthingctl status
+#        syncthingctl rescan [folder-id]
+#        syncthingctl setpaused <folder-id> <true|false>
+# `status` always exits 0 and prints one JSON blob; unreachable states are
+# reported inside the JSON so the widget never has to parse stderr.
+set -uo pipefail
+
+cfg="${XDG_STATE_HOME:-$HOME/.local/state}/syncthing/config.xml"
+[[ -r "$cfg" ]] || cfg="${XDG_CONFIG_HOME:-$HOME/.config}/syncthing/config.xml"
+
+fail() {
+  jq -n --arg r "$1" '{installed: ($r != "noconfig"), running: false, reason: $r}'
+  exit 0
+}
+
+[[ -r "$cfg" ]] || fail noconfig
+
+apikey=$(awk -F'[<>]' '$2=="apikey"{print $3; exit}' "$cfg")
+addr=$(awk -F'[<>]' '/<gui[ >]/{g=1} g && $2=="address"{print $3; exit} $2=="/gui"{g=0}' "$cfg")
+[[ -n "$apikey" && -n "$addr" ]] || fail noconfig
+
+base="http://$addr/rest"
+api() { curl -sf -m 5 -H "X-API-Key: $apikey" "$@"; }
+
+case "${1:-status}" in
+  rescan)
+    if [[ -n "${2:-}" ]]; then
+      api -X POST -G --data-urlencode "folder=$2" "$base/db/scan"
+    else
+      api -X POST "$base/db/scan"
+    fi
+    ;;
+  setpaused)
+    api -X PATCH -H 'Content-Type: application/json' \
+      -d "{\"paused\": $3}" "$base/config/folders/$2"
+    ;;
+  status)
+    sys=$(api "$base/system/status") || fail down
+    cfgjson=$(api "$base/config") || fail down
+    conns=$(api "$base/system/connections") || conns='{"connections":{}}'
+    stats=$(api "$base/stats/device") || stats='{}'
+
+    folder_states="[]"
+    while IFS= read -r fid; do
+      [[ -n "$fid" ]] || continue
+      st=$(api -G --data-urlencode "folder=$fid" "$base/db/status") || st='{}'
+      folder_states=$(jq --arg id "$fid" --argjson st "$st" \
+        '. + [{id: $id, st: $st}]' <<<"$folder_states")
+    done < <(jq -r '.folders[].id' <<<"$cfgjson")
+
+    jq -n --arg addr "$addr" \
+          --argjson sys "$sys" --argjson cfg "$cfgjson" --argjson conns "$conns" \
+          --argjson stats "$stats" --argjson fs "$folder_states" '
+      def fstate($f): ([$fs[] | select(.id == $f.id) | .st] | first) // {};
+      {
+        installed: true,
+        running: true,
+        guiAddress: $addr,
+        myID: $sys.myID,
+        myName: (([$cfg.devices[] | select(.deviceID == $sys.myID) | .name] | first) // "This device"),
+        folders: [ $cfg.folders[] | fstate(.) as $st | {
+          id,
+          label: (if (.label // "") != "" then .label else .id end),
+          path,
+          paused: (.paused == true),
+          state: (if .paused == true then "paused" else ($st.state // "unknown") end),
+          globalBytes: ($st.globalBytes // 0),
+          needBytes: ($st.needBytes // 0),
+          needItems: ($st.needTotalItems // 0),
+          errors: ($st.errors // 0),
+          completion: (if ($st.globalBytes // 0) == 0 then 100
+            else (($st.globalBytes - ($st.needBytes // 0)) / $st.globalBytes * 100) end)
+        }],
+        devices: [ $cfg.devices[] | select(.deviceID != $sys.myID) | {
+          id: .deviceID,
+          name,
+          paused: (.paused == true),
+          connected: (($conns.connections[.deviceID].connected) // false),
+          address: (($conns.connections[.deviceID].address) // ""),
+          lastSeen: (($stats[.deviceID].lastSeen) // "")
+        }]
+      }
+      | .totalNeed = ([.folders[].needBytes] | add // 0)
+      | .totalGlobal = ([.folders[].globalBytes] | add // 0)
+      | .syncPercent = (if .totalGlobal == 0 then 100
+          else ((.totalGlobal - .totalNeed) / .totalGlobal * 100) end)
+      | .overall = (
+          if ([.folders[] | select(.errors > 0 or .state == "error" or .state == "outofsync")] | length) > 0 then "error"
+          elif ([.folders[] | select(.state == "syncing" or .state == "sync-preparing" or .needBytes > 0)] | length) > 0 then "syncing"
+          elif ([.folders[] | select(.state == "scanning")] | length) > 0 then "scanning"
+          elif ([.folders[] | select(.state != "paused")] | length) == 0 then "paused"
+          else "idle" end)
+    '
+    ;;
+esac
