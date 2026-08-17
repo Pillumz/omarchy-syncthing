@@ -21,8 +21,13 @@ Item {
   property string myName: ""
   property string myID: ""
   property string guiAddress: "127.0.0.1:8384"
+  property string guiUrl: "http://127.0.0.1:8384"
   property var folders: []
   property var devices: []
+  // Serialized snapshots so unchanged polls don't reassign the arrays and
+  // force the panel Repeaters to rebuild every row.
+  property string _foldersJson: "[]"
+  property string _devicesJson: "[]"
   property string actionStatus: ""
   property string lastError: ""
 
@@ -99,7 +104,21 @@ Item {
     if (statusProcess.running) return
     statusProcess.command = ["bash", helperPath, "status"]
     statusProcess.running = true
-    if (!pollWatchdog.running) pollWatchdog.start()
+    pollWatchdog.restart()
+  }
+
+  function setFolders(list) {
+    var json = JSON.stringify(list)
+    if (json === _foldersJson) return
+    _foldersJson = json
+    folders = list
+  }
+
+  function setDevices(list) {
+    var json = JSON.stringify(list)
+    if (json === _devicesJson) return
+    _devicesJson = json
+    devices = list
   }
 
   function applyStatus(raw) {
@@ -115,8 +134,8 @@ Item {
     if (_desired !== -1 && serviceRunning === (_desired === 1)) _desired = -1
     if (!serviceRunning) {
       overall = "stopped"
-      folders = []
-      devices = []
+      setFolders([])
+      setDevices([])
       lastError = ""
       return
     }
@@ -125,8 +144,9 @@ Item {
     myName = String(data.myName || "")
     myID = String(data.myID || "")
     guiAddress = String(data.guiAddress || "127.0.0.1:8384")
-    folders = data.folders || []
-    devices = data.devices || []
+    guiUrl = String(data.guiUrl || "http://" + guiAddress)
+    setFolders(data.folders || [])
+    setDevices(data.devices || [])
     lastError = ""
   }
 
@@ -158,7 +178,7 @@ Item {
   }
 
   function openWebUI() {
-    Quickshell.execDetached(["omarchy-launch-browser", "http://" + guiAddress])
+    Quickshell.execDetached(["omarchy-launch-browser", guiUrl])
   }
 
   function openFolder(folder) {
@@ -195,8 +215,16 @@ Item {
     running: false
     onTriggered: {
       ticks += 1
-      if (root.serviceRunning || ticks >= 10) startupRamp.running = false
-      else root.refresh()
+      if (root._desired === -1) {
+        startupRamp.running = false
+      } else if (ticks >= 10) {
+        // Reality never caught up (e.g. syncthing crashed right after a
+        // clean systemctl start): stop pretending and follow reality again.
+        startupRamp.running = false
+        root._desired = -1
+      } else {
+        root.refresh()
+      }
     }
   }
 
@@ -229,6 +257,7 @@ Item {
     command: []
     stdout: StdioCollector { id: statusStdout; waitForEnd: true }
     onExited: function(exitCode) {
+      pollWatchdog.stop()
       var out = String(statusStdout.text || "")
       if (exitCode === 0 && out.trim() !== "") root.applyStatus(out)
       else root.lastError = "Syncthing status check failed"

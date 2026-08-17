@@ -32,7 +32,6 @@ Item {
       duration: 1600
       loops: Animation.Infinite
     }
-    onRotationChanged: if (!root.spinning && rotation !== 0) rotation = 0
 
     onPaint: {
       var ctx = getContext("2d")
@@ -78,6 +77,7 @@ Item {
 
   onColorChanged: canvas.requestPaint()
   onWidthChanged: canvas.requestPaint()
+  onSpinningChanged: if (!spinning) canvas.rotation = 0
 
   Rectangle {
     visible: root.crossed

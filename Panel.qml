@@ -69,6 +69,7 @@ Panel {
     if (deviceIndex >= syncthing.devices.length) deviceIndex = Math.max(0, syncthing.devices.length - 1)
     if (focusSection === "folders" && !showFolders) focusSection = showDevices ? "devices" : "header"
     if (focusSection === "devices" && !showDevices) focusSection = showFolders ? "folders" : "header"
+    if (focusSection === "webui" && !syncthing.active) focusSection = "header"
   }
 
   function moveCursor(dx, dy) {
@@ -79,7 +80,7 @@ Panel {
       if (dy > 0) {
         if (showFolders) { focusSection = "folders"; folderIndex = 0 }
         else if (showDevices) { focusSection = "devices"; deviceIndex = 0 }
-        else focusSection = "webui"
+        else if (syncthing.active) focusSection = "webui"
       }
     } else if (focusSection === "folders") {
       if (dy < 0) {
@@ -88,7 +89,7 @@ Panel {
       } else {
         if (folderIndex < syncthing.folders.length - 1) folderIndex++
         else if (showDevices) { focusSection = "devices"; deviceIndex = 0 }
-        else focusSection = "webui"
+        else if (syncthing.active) focusSection = "webui"
       }
     } else if (focusSection === "devices") {
       if (dy < 0) {
@@ -96,7 +97,7 @@ Panel {
         else deviceIndex--
       } else {
         if (deviceIndex < syncthing.devices.length - 1) deviceIndex++
-        else focusSection = "webui"
+        else if (syncthing.active) focusSection = "webui"
       }
     } else if (focusSection === "webui") {
       if (dy < 0) {
@@ -185,6 +186,8 @@ Panel {
     target: root.ipcTarget
     function open(): void { root.open() }
     function close(): void { root.close() }
+    function show(): void { root.open() }
+    function hide(): void { root.close() }
     function toggle(): void { root.toggle() }
     function refresh(): string { syncthing.refresh(); return "ok" }
     function toggleService(): string { syncthing.toggleService(); return "ok" }
@@ -639,7 +642,7 @@ Panel {
 
         Text {
           Layout.fillWidth: true
-          text: "http://" + syncthing.guiAddress
+          text: syncthing.guiUrl
           color: root.dim
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption

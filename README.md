@@ -19,7 +19,7 @@ popup panel for folders, devices, and quick actions.
 - **Keyboard in the panel**: arrows/jk navigate, Enter activates,
   `t` toggle service, `o` open Web UI, `r` rescan (selected folder, else all),
   `p` pause/resume selected folder.
-- **IPC**: `omarchy-shell explify.syncthing <open|close|toggle|refresh|toggleService|status>`
+- **IPC**: `omarchy-shell explify.syncthing <open|close|show|hide|toggle|refresh|toggleService|status>`
 
 ## How it works
 
@@ -29,12 +29,33 @@ and assembles one JSON blob from the Syncthing REST API. `Service.qml` polls
 it on `refreshIntervalSec` (default 10s, 3s while syncing) and exposes state
 to `Panel.qml`. No credentials are stored in the plugin.
 
-## Install on another machine
+## Requirements
 
-The plugin directory just needs to exist under
+- Omarchy 4.0+ (quickshell-based `omarchy-shell`)
+- `syncthing` running as the systemd user unit `syncthing.service`
+  (`systemctl --user enable --now syncthing`)
+- `bash`, `curl`, `jq` (all present on a stock Omarchy install)
+
+## Install
+
+```bash
+omarchy plugin add https://github.com/Pillumz/omarchy-syncthing.git --enable
+```
+
+Or manually: copy the plugin directory to
 `~/.config/omarchy/plugins/explify.syncthing/`, then:
 
 ```bash
 omarchy-shell shell rescanPlugins
 omarchy bar put explify.syncthing --section right
 ```
+
+## Remove
+
+```bash
+omarchy plugin remove explify.syncthing
+```
+
+## License
+
+MIT — see [LICENSE](LICENSE).

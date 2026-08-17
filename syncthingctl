@@ -21,8 +21,15 @@ apikey=$(awk -F'[<>]' '$2=="apikey"{print $3; exit}' "$cfg")
 addr=$(awk -F'[<>]' '/<gui[ >]/{g=1} g && $2=="address"{print $3; exit} $2=="/gui"{g=0}' "$cfg")
 [[ -n "$apikey" && -n "$addr" ]] || fail noconfig
 
-base="http://$addr/rest"
-api() { curl -sf -m 5 -H "X-API-Key: $apikey" "$@"; }
+scheme=http
+curlopts=()
+if awk '/<gui[ >]/{exit !($0 ~ /tls="true"/)}' "$cfg"; then
+  # The GUI cert is self-signed by default; the API key still authenticates.
+  scheme=https
+  curlopts=(-k)
+fi
+base="$scheme://$addr/rest"
+api() { curl -sf -m 5 "${curlopts[@]}" -H "X-API-Key: $apikey" "$@"; }
 
 case "${1:-status}" in
   rescan)
@@ -33,8 +40,9 @@ case "${1:-status}" in
     fi
     ;;
   setpaused)
+    fid=$(jq -rn --arg s "$2" '$s|@uri')
     api -X PATCH -H 'Content-Type: application/json' \
-      -d "{\"paused\": $3}" "$base/config/folders/$2"
+      -d "{\"paused\": $3}" "$base/config/folders/$fid"
     ;;
   status)
     sys=$(api "$base/system/status") || fail down
@@ -50,7 +58,7 @@ case "${1:-status}" in
         '. + [{id: $id, st: $st}]' <<<"$folder_states")
     done < <(jq -r '.folders[].id' <<<"$cfgjson")
 
-    jq -n --arg addr "$addr" \
+    jq -n --arg addr "$addr" --arg scheme "$scheme" \
           --argjson sys "$sys" --argjson cfg "$cfgjson" --argjson conns "$conns" \
           --argjson stats "$stats" --argjson fs "$folder_states" '
       def fstate($f): ([$fs[] | select(.id == $f.id) | .st] | first) // {};
@@ -58,6 +66,7 @@ case "${1:-status}" in
         installed: true,
         running: true,
         guiAddress: $addr,
+        guiUrl: ($scheme + "://" + $addr),
         myID: $sys.myID,
         myName: (([$cfg.devices[] | select(.deviceID == $sys.myID) | .name] | first) // "This device"),
         folders: [ $cfg.folders[] | fstate(.) as $st | {
@@ -82,15 +91,16 @@ case "${1:-status}" in
           lastSeen: (($stats[.deviceID].lastSeen) // "")
         }]
       }
-      | .totalNeed = ([.folders[].needBytes] | add // 0)
-      | .totalGlobal = ([.folders[].globalBytes] | add // 0)
+      | ([.folders[] | select(.paused | not)]) as $active
+      | .totalNeed = ([$active[].needBytes] | add // 0)
+      | .totalGlobal = ([$active[].globalBytes] | add // 0)
       | .syncPercent = (if .totalGlobal == 0 then 100
           else ((.totalGlobal - .totalNeed) / .totalGlobal * 100) end)
       | .overall = (
           if ([.folders[] | select(.errors > 0 or .state == "error" or .state == "outofsync")] | length) > 0 then "error"
-          elif ([.folders[] | select(.state == "syncing" or .state == "sync-preparing" or .needBytes > 0)] | length) > 0 then "syncing"
-          elif ([.folders[] | select(.state == "scanning")] | length) > 0 then "scanning"
-          elif ([.folders[] | select(.state != "paused")] | length) == 0 then "paused"
+          elif ([$active[] | select(.state == "syncing" or .state == "sync-preparing")] | length) > 0 then "syncing"
+          elif ([$active[] | select(.state == "scanning")] | length) > 0 then "scanning"
+          elif ((.folders | length) > 0 and ($active | length) == 0) then "paused"
           else "idle" end)
     '
     ;;
