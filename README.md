@@ -3,6 +3,8 @@
 Bar widget for the Omarchy 4.0 shell: Syncthing status at a glance, with a
 popup panel for folders, devices, and quick actions.
 
+<img src="preview.png" alt="Panel preview" width="380">
+
 ## What it does
 
 - **Bar icon**: the Syncthing mark, drawn natively. Dimmed + crossed when the
