@@ -29,7 +29,9 @@ if awk '/<gui[ >]/{exit !($0 ~ /tls="true"/)}' "$cfg"; then
   curlopts=(-k)
 fi
 base="$scheme://$addr/rest"
-api() { curl -sf -m 5 "${curlopts[@]}" -H "X-API-Key: $apikey" "$@"; }
+# The API key goes in via stdin (-H @-), not argv, so it never shows up in
+# /proc/*/cmdline while curl runs.
+api() { curl -sf -m 5 "${curlopts[@]}" -H @- "$@" <<<"X-API-Key: $apikey"; }
 
 case "${1:-status}" in
   rescan)
